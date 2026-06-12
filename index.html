@@ -432,6 +432,19 @@
     </div>
 
     <div>
+      <div class="section-label">Headers de petición (opcional)</div>
+      <label for="ua">User-Agent</label>
+      <input type="text" id="ua" placeholder="Kodi/20.0 (Linux; Android)" spellcheck="false" />
+      <p class="hint" style="margin-bottom:10px">Algunos streams de TV requieren un User-Agent específico.</p>
+      <label for="referer">Referer</label>
+      <input type="text" id="referer" placeholder="https://example.com/" spellcheck="false" />
+      <p class="hint" style="margin-bottom:10px">Opcional — si el servidor lo requiere.</p>
+      <label for="extra-headers">Headers extra (JSON)</label>
+      <textarea id="extra-headers" style="min-height:58px" placeholder='{"X-Custom-Header": "valor"}'></textarea>
+      <p class="hint">Formato JSON. Opcional.</p>
+    </div>
+
+    <div>
       <div class="section-label">Alternativa — JSON ClearKey</div>
       <label>Pega el JSON de licencia manualmente (opcional)</label>
       <textarea id="clearkey-json" placeholder='{"keys":[{"kty":"oct","k":"...","kid":"..."}],"type":"temporary"}'></textarea>
@@ -675,9 +688,33 @@ $('play-btn').onclick = async () => {
 
   log('Configuración DRM construida ✓', 'ok');
 
+  // Construir headers
+  const reqHeaders = {};
+  const ua = $('ua').value.trim();
+  const referer = $('referer').value.trim();
+  const extraRaw = $('extra-headers').value.trim();
+  if (ua) reqHeaders['User-Agent'] = ua;
+  if (referer) reqHeaders['Referer'] = referer;
+  if (extraRaw) {
+    try {
+      Object.assign(reqHeaders, JSON.parse(extraRaw));
+    } catch(e) {
+      log('Headers extra — JSON inválido: ' + e.message, 'warn');
+    }
+  }
+
   try {
     player = await initPlayer();
     player.configure({ drm: drmConfig });
+
+    // Inyectar headers en todas las peticiones (MPD + segmentos)
+    if (Object.keys(reqHeaders).length > 0) {
+      player.getNetworkingEngine().registerRequestFilter((type, request) => {
+        Object.assign(request.headers, reqHeaders);
+      });
+      log('Headers configurados: ' + JSON.stringify(reqHeaders), 'info');
+    }
+
     log('Shaka Player configurado ✓', 'ok');
     await player.load(url);
     log('Manifiesto cargado ✓', 'ok');
