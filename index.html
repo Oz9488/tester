@@ -1,245 +1,142 @@
-```html
 <!DOCTYPE html>
 <html lang="es">
-
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 
-<title>Oz Player</title>
+<title>Oz Player TV</title>
 
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script src="https://cdn.dashjs.org/latest/dash.all.min.js"></script>
 
 <style>
 
-*{
-    margin:0;
-    padding:0;
-    box-sizing:border-box;
-}
-
 body{
+    margin:0;
     background:#000;
-    font-family:Arial,sans-serif;
+    color:white;
+    font-family:Arial;
     overflow:hidden;
 }
 
-#toggleMenu{
-    position:absolute;
-    top:15px;
-    left:15px;
-    z-index:9999;
-
-    background:rgba(0,0,0,.7);
-    color:#fff;
-
-    border:none;
-    border-radius:5px;
-
-    padding:10px 15px;
-    cursor:pointer;
-}
-
-#fullscreenBtn{
-
-    position:absolute;
-    top:15px;
-    right:15px;
-    z-index:9999;
-
-    background:rgba(0,0,0,.7);
-    color:#fff;
-
-    border:none;
-    border-radius:5px;
-
-    padding:10px 15px;
-    cursor:pointer;
-}
-
-.container{
+#container{
     display:flex;
     width:100vw;
     height:100vh;
 }
 
-.sidebar{
+#sidebar{
     width:350px;
     background:#111;
-    color:white;
-
-    transition:.3s;
-
     overflow-y:auto;
+}
+
+.channel{
     padding:15px;
-}
-
-.sidebar.hidden{
-    width:0;
-    padding:0;
-    overflow:hidden;
-}
-
-.sidebar h2{
-    margin-bottom:15px;
-}
-
-.sidebar input,
-.sidebar select{
-
-    width:100%;
-
-    padding:10px;
-
-    margin-bottom:8px;
-
-    background:#222;
-    color:white;
-
-    border:none;
-    border-radius:5px;
-}
-
-.sidebar button{
-
-    width:100%;
-
-    padding:12px;
-
-    margin-bottom:10px;
-
-    background:#6d28d9;
-
-    color:white;
-
-    border:none;
-    border-radius:5px;
-
+    border-bottom:1px solid #333;
     cursor:pointer;
 }
 
-.sidebar button:hover{
-    opacity:.9;
+.channel.active{
+    background:#0066ff;
 }
 
-.source-editor{
-
-    background:#1b1b1b;
-
-    padding:10px;
-
-    border-radius:5px;
-
-    margin-bottom:12px;
-}
-
-.source-list{
-    margin-top:15px;
-}
-
-.source-item{
-
-    background:#222;
-
-    padding:12px;
-
-    margin-bottom:8px;
-
-    border-radius:5px;
-
-    cursor:pointer;
-}
-
-.source-item:hover{
-    background:#333;
-}
-
-.source-item.active{
-
-    background:#333;
-
-    border-left:5px solid #00ff88;
-}
-
-.player-area{
-
+#playerArea{
     flex:1;
-
-    background:black;
-
     position:relative;
 }
 
-video{
+#fullscreenBtn{
+    position:absolute;
+    top:20px;
+    left:20px;
+    z-index:9999;
+    width:50px;
+    height:50px;
+    border:none;
+    border-radius:8px;
+    background:#0066ff;
+    color:white;
+    font-size:24px;
+    cursor:pointer;
+}
 
+video{
     width:100%;
     height:100%;
-
-    object-fit:contain;
-
     background:black;
 }
 
 iframe{
-
     width:100%;
     height:100%;
-
     border:none;
-
     display:none;
-
-    background:black;
 }
 
+#infoBar{
+    position:absolute;
+    bottom:0;
+    left:0;
+    right:0;
+    background:rgba(0,0,0,.8);
+    padding:10px;
+}
+
+#sourcePanel{
+    position:absolute;
+    top:20px;
+    right:20px;
+    width:300px;
+    background:rgba(0,0,0,.9);
+    display:none;
+}
+
+.source{
+    padding:10px;
+    border-bottom:1px solid #444;
+}
+
+.source.active{
+    background:#0066ff;
+}
+body.single-channel #sidebar{
+    display:none;
+}
 </style>
 </head>
 
 <body>
 
-<button id="toggleMenu" onclick="toggleMenu()">
-☰ Fuentes
-</button>
+<div id="container">
 
-<div class="container">
+<div id="sidebar"></div>
 
-<div class="sidebar">
+<div id="playerArea">
 
-<h2>Fuentes</h2>
-
-<div id="sourceInputs"></div>
-
-<button onclick="addSourceField()">
-➕ Añadir Fuente
-</button>
-
-<button onclick="loadSources()">
-▶ Cargar Fuentes
-</button>
-
-<div id="sources" class="source-list"></div>
-
-</div>
-
-<div class="player-area" id="playerArea">
-
-<button id="fullscreenBtn">
-⛶ Fullscreen
-</button>
+    <button id="fullscreenBtn">⛶</button>
 
 <video
-id="video"
-controls
-autoplay>
+    id="video"
+    controls
+    autoplay
+    playsinline
+    webkit-playsinline>
 </video>
 
 <iframe
-id="embedFrame"
-allowfullscreen
-webkitallowfullscreen
-mozallowfullscreen
-allow="fullscreen; autoplay">
+    id="iframePlayer"
+    allow="autoplay; fullscreen"
+    allowfullscreen
+    webkitallowfullscreen
+    mozallowfullscreen>
 </iframe>
+
+<div id="sourcePanel"></div>
+
+<div id="infoBar">
+Canal: <span id="channelName">Ninguno</span>
+</div>
 
 </div>
 
@@ -247,244 +144,401 @@ allow="fullscreen; autoplay">
 
 <script>
 
-const video=document.getElementById("video");
-const iframe=document.getElementById("embedFrame");
+const M3U = `
 
-let currentHls=null;
-let sourceCount=0;
-let loadedSources=[];
+#EXTM3U
 
-function toggleMenu(){
+#EXTINF:-1 tvg-id="canal5",Canal 5
+https://cdn.pontiscloud.com/output/COR/TSFH/playlist.m3u8
+#EXTINF:-1 tvg-id="canal5",Canal 5
+iframe:https://junkieembeds.pages.dev/embed/fox-sports-1
+#EXTINF:-1 tvg-id="canal5",Canal 5
+iframe:https://junkieembeds.pages.dev/embed/telemundo-usa
+#EXTINF:-1 tvg-id="canal5",Canal 5
+iframe:https://streamtpday1.xyz/global2.php?stream=dsports
+#EXTINF:-1 tvg-id="canal5",Canal 5
+iframe:https://streamtpday1.xyz/global2.php?stream=telemundousa
+#EXTINF:-1 tvg-id="canal5",Canal 5
+iframe:https://la18hd.com/vivo/canales.php?stream=telefe
+
+`;
+
+let channels={};
+let channelList=[];
+let selectedChannel=0;
+let selectedSource=0;
+
+const params = new URLSearchParams(window.location.search);
+const tvgid = params.get('tvgid');
+
+
+parseM3U();
+
+if(tvgid){
+
+    const index =
+    channelList.findIndex(
+        ch => ch.id === tvgid
+    );
+
+    if(index >= 0){
+        selectedChannel = index;
+    }
 
     document
-        .querySelector(".sidebar")
-        .classList
-        .toggle("hidden");
+    .getElementById('sidebar')
+    .style.display = 'none';
+
+}else{
+
+    renderChannels();
+
 }
 
-function addSourceField(){
 
-    sourceCount++;
+function parseM3U(){
 
-    const div=document.createElement("div");
+    const lines=M3U.split('\n');
 
-    div.className="source-editor";
+    let current=null;
 
-    div.innerHTML=`
+    for(let i=0;i<lines.length;i++){
 
-        <input
-        class="source-name"
-        placeholder="Nombre Fuente ${sourceCount}">
+        const line=lines[i].trim();
 
-        <select class="source-type">
+        if(line.startsWith('#EXTINF')){
 
-            <option value="hls">
-                HLS / MP4
-            </option>
+            const tvgid=line.match(/tvg-id="([^"]+)"/);
 
-            <option value="embed">
-                EMBED / IFRAME
-            </option>
+            const name=line.split(',').pop();
 
-        </select>
+            current={
+                id:tvgid?tvgid[1]:name,
+                name:name
+            };
 
-        <input
-        class="source-url"
-        placeholder="URL Fuente ${sourceCount}">
+        }else if(
+            line &&
+            !line.startsWith('#')
+        ){
 
-    `;
+            if(!channels[current.id]){
 
-    document
-        .getElementById("sourceInputs")
-        .appendChild(div);
-}
+                channels[current.id]={
+                    id:current.id,
+                    name:current.name,
+                    sources:[]
+                };
 
-function loadSources(){
+            }
 
-    loadedSources=[];
+            channels[current.id]
+            .sources
+            .push(line);
 
-    document
-    .querySelectorAll(".source-editor")
-    .forEach((item,index)=>{
-
-        const name=
-            item.querySelector(".source-name").value.trim()
-            || `Fuente ${index+1}`;
-
-        const type=
-            item.querySelector(".source-type").value;
-
-        const url=
-            item.querySelector(".source-url").value.trim();
-
-        if(url){
-
-            loadedSources.push({
-                name,
-                type,
-                url
-            });
         }
+
+    }
+
+    channelList=Object.values(channels);
+
+}
+
+function renderChannels(){
+
+    const sidebar=document.getElementById('sidebar');
+
+    sidebar.innerHTML='';
+
+    channelList.forEach((ch,index)=>{
+
+        const div=document.createElement('div');
+
+        div.className='channel';
+
+        if(index===selectedChannel)
+            div.classList.add('active');
+
+        div.innerText=ch.name;
+
+        sidebar.appendChild(div);
+
     });
 
-    renderSourceMenu();
+}
 
-    if(loadedSources.length){
+function playChannel(index){
 
-        selectSource(0);
+    selectedChannel=index;
 
-        document
-        .querySelector(".sidebar")
-        .classList
-        .add("hidden");
+    selectedSource=0;
+
+    renderChannels();
+
+    showSources();
+
+    playSource(0);
+
+}
+
+function showSources(){
+
+    const panel=document.getElementById('sourcePanel');
+
+    panel.style.display='block';
+
+    const channel=channelList[selectedChannel];
+
+    panel.innerHTML='';
+
+    channel.sources.forEach((src,index)=>{
+
+        const div=document.createElement('div');
+
+        div.className='source';
+
+        if(index===selectedSource)
+            div.classList.add('active');
+
+        div.innerText='Fuente '+(index+1);
+
+        panel.appendChild(div);
+
+    });
+
+}
+
+
+function toggleFullscreen(){
+
+    const iframe =
+        document.getElementById('iframePlayer');
+
+    const video =
+        document.getElementById('video');
+
+    const target =
+        iframe.style.display === 'block'
+        ? iframe
+        : video;
+
+    if(document.fullscreenElement){
+
+        document.exitFullscreen();
+
+    }else{
+
+        target.requestFullscreen?.();
+
     }
 }
 
-function renderSourceMenu(){
+document
+.getElementById('fullscreenBtn')
+.addEventListener(
+    'click',
+    toggleFullscreen
+);
 
-    const container=
-        document.getElementById("sources");
+function playSource(index){
 
-    container.innerHTML="";
+    selectedSource=index;
 
-    loadedSources.forEach((source,index)=>{
+    showSources();
 
-        const div=
-            document.createElement("div");
+    const channel=channelList[selectedChannel];
 
-        div.className=
-            "source-item";
+    const source=channel.sources[index];
 
-        div.innerHTML=
-            source.name;
+    document.getElementById(
+        'channelName'
+    ).innerText=channel.name;
 
-        div.onclick=()=>{
+    const video=
+    document.getElementById('video');
 
-            document
-            .querySelectorAll(".source-item")
-            .forEach(x=>x.classList.remove("active"));
+    const iframe=
+    document.getElementById('iframePlayer');
 
-            div.classList.add("active");
+    video.style.display='block';
+    iframe.style.display='none';
 
-            selectSource(index);
-        };
+if(source.startsWith('iframe:')){
 
-        container.appendChild(div);
-    });
+    video.pause();
+
+    video.style.display='none';
+
+    iframe.style.display='block';
+
+    let url =
+        source.replace('iframe:','');
+
+    iframe.allow =
+        'autoplay; fullscreen';
+
+    iframe.src = url;
+
+    return;
 }
 
-function selectSource(index){
+    if(source.endsWith('.mpd')){
 
-    const source=
-        loadedSources[index];
+        const player=
+        dashjs.MediaPlayer().create();
 
-    document
-    .querySelectorAll(".source-item")
-    .forEach(x=>x.classList.remove("active"));
+        player.initialize(
+            video,
+            source,
+            true
+        );
 
-    const active=
-        document.querySelectorAll(".source-item")[index];
+        return;
 
-    if(active)
-        active.classList.add("active");
+    }
 
-    if(source.type==="embed"){
+    if(Hls.isSupported()){
 
-        if(currentHls){
+        const hls=new Hls();
 
-            currentHls.destroy();
-            currentHls=null;
-        }
+        hls.loadSource(source);
+
+        hls.attachMedia(video);
+
+    }else{
+
+        video.src=source;
+
+    }
+
+}
+
+document.addEventListener(
+'keydown',
+e=>{
+
+    switch(e.keyCode){
+
+        case 38:
+
+            if(selectedChannel>0){
+
+                selectedChannel--;
+
+                renderChannels();
+
+            }
+
+        break;
+
+        case 77: // M
+
+    const video =
+    document.getElementById('video');
+
+    video.muted = !video.muted;
+
+        break;
+
+        case 80: // P
+
+    if(video.paused){
+
+        video.play();
+
+    }else{
 
         video.pause();
 
-        video.style.display="none";
-
-        iframe.style.display="block";
-
-        iframe.src=source.url;
-
-        return;
     }
 
-    iframe.style.display="none";
-    iframe.src="";
+    break;
 
-    video.style.display="block";
 
-    if(currentHls){
+        case 40:
 
-        currentHls.destroy();
-        currentHls=null;
-    }
+            if(
+                selectedChannel<
+                channelList.length-1
+            ){
 
-    if(source.url.toLowerCase().includes(".m3u8")){
+                selectedChannel++;
 
-        if(Hls.isSupported()){
+                renderChannels();
 
-            currentHls=new Hls();
+            }
 
-            currentHls.loadSource(source.url);
+        break;
 
-            currentHls.attachMedia(video);
+        case 13:
 
-            currentHls.on(
-                Hls.Events.MANIFEST_PARSED,
-                ()=>{
-                    video.play();
-                }
+            playChannel(
+                selectedChannel
             );
 
-        }else{
+        break;
 
-            video.src=source.url;
-            video.play();
-        }
+        case 39:
 
-    }else{
+            const channel=
+            channelList[selectedChannel];
 
-        video.src=source.url;
-        video.play();
+            if(
+                selectedSource<
+                channel.sources.length-1
+            ){
+
+                selectedSource++;
+
+                playSource(
+                    selectedSource
+                );
+
+            }
+
+        break;
+
+        case 70:
+
+    toggleFullscreen();
+
+        break;
+
+        case 37:
+
+            if(selectedSource>0){
+
+                selectedSource--;
+
+                playSource(
+                    selectedSource
+                );
+
+            }
+
+        break;
+
     }
-}
 
-function goFullscreen(){
-
-    const playerArea =
-        document.getElementById("playerArea");
-
-    if(!document.fullscreenElement){
-
-        playerArea.requestFullscreen();
-
-    }else{
-
-        document.exitFullscreen();
-    }
-}
-
-video.addEventListener("dblclick",goFullscreen);
-
-iframe.addEventListener("dblclick",goFullscreen);
-
-document
-.getElementById("fullscreenBtn")
-.addEventListener("click",goFullscreen);
-
-document.addEventListener("keydown",(e)=>{
-
-    if(e.key.toLowerCase()==="f"){
-
-        toggleMenu();
-    }
 });
 
-addSourceField();
-addSourceField();
-addSourceField();
+if(channelList.length){
+
+    if(tvgid){
+
+        playChannel(
+            selectedChannel
+        );
+
+    }else{
+
+        playChannel(0);
+
+    }
+
+}   
 
 </script>
 
 </body>
 </html>
-```
