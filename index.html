@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Oz Player TV</title>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script src="https://cdn.dashjs.org/latest/dash.all.min.js"></script>
+<!-- Google Cast SDK -->
+<script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
+<style>
+*{box-sizing:border-box}
+
+body{
+  margin:0;
+  background:#000;
+  color:white;
+  font-family:Arial;
+  overflow:hidden;
+  user-select:none;
+}
+
+#container{
+  display:flex;
+  flex-direction:column;
+  width:100vw;
+  height:100vh;
+}
+
+#fixedBar{
+  flex-shrink:0;
+  background:rgba(0,0,0,.92);
+  backdrop-filter:blur(6px);
+  border-bottom:1px solid #222;
+  display:flex;
+  flex-direction:column;
+  z-index:999;
+}
+
+#fixedBarTop{
+  display:flex;
+  gap:8px;
+  padding:10px 14px;
+  align-items:center;
+}
+
+#fixedBarSources{
+  display:flex;
+  gap:6px;
+  padding:0 14px 10px;
+  flex-wrap:wrap;
+}
+
+#fixedBarInfo{
+  flex:1;
+  font-size:15px;
+  font-weight:bold;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+#main{
+  display:flex;
+  flex:1;
+  overflow:hidden;
+}
+
+#sidebar{
+  width:280px;
+  background:#111;
+  overflow-y:auto;
+  display:flex;
+  flex-direction:column;
+  flex-shrink:0;
+}
+
+#sidebarHeader{
+  padding:14px 16px;
+  background:#0a0a0a;
+  font-size:14px;
+  color:#888;
+  letter-spacing:1px;
+  text-transform:uppercase;
+  border-bottom:1px solid #222;
+  flex-shrink:0;
+}
+
+.channel{
+  padding:14px 16px;
+  border-bottom:1px solid #1e1e1e;
+  cursor:pointer;
+  font-size:15px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  transition:background .15s;
+}
+.channel:hover{ background:#1a1a1a; }
+.channel.active{ background:#0055dd; font-weight:bold; }
+.ch-num{ font-size:11px; color:#666; min-width:22px; }
+.channel.active .ch-num{ color:#aad; }
+
+#playerArea{
+  flex:1;
+  position:relative;
+  background:#000;
+  overflow:hidden;
+}
+
+video{
+  width:100%;
+  height:100%;
+  background:#000;
+  display:block;
+}
+
+iframe{
+  width:100%;
+  height:100%;
+  border:none;
+  display:none;
+  position:absolute;
+  top:0; left:0;
+}
+
+.ctrl-btn{
+  width:42px; height:42px;
+  border:none; border-radius:10px;
+  background:rgba(255,255,255,.12);
+  color:white; font-size:18px;
+  cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+  transition:background .15s, transform .1s;
+  flex-shrink:0;
+}
+.ctrl-btn:hover,.ctrl-btn:focus{
+  background:rgba(0,102,255,.85);
+  transform:scale(1.05);
+  outline:none;
+}
+.ctrl-btn:active{ transform:scale(.95); }
+.ctrl-btn.casting{
+  background:rgba(0,180,100,.85);
+}
+
+.nav-btn{
+  padding:7px 14px; border:none; border-radius:8px;
+  background:rgba(255,255,255,.12); color:white; font-size:13px;
+  cursor:pointer; transition:background .15s;
+}
+.nav-btn:hover,.nav-btn:focus{ background:rgba(0,102,255,.85); outline:none; }
+
+.src-pill{
+  padding:6px 13px; border:none; border-radius:20px;
+  background:rgba(255,255,255,.15); color:white; font-size:12px;
+  cursor:pointer; transition:background .15s;
+}
+.src-pill.active{ background:#0055dd; }
+.src-pill:hover,.src-pill:focus{ background:rgba(0,102,255,.85); outline:none; }
+
+#spinner{
+  position:absolute; inset:0;
+  display:flex; align-items:center; justify-content:center;
+  pointer-events:none; opacity:0; transition:opacity .3s; z-index:60;
+}
+#spinner.visible{ opacity:1; }
+.spin{
+  width:50px; height:50px;
+  border:4px solid rgba(255,255,255,.2);
+  border-top-color:#0066ff;
+  border-radius:50%;
+  animation:spin .8s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── CAST OVERLAY (cuando está transmitiendo) ── */
+#castOverlay{
+  display:none;
+  position:absolute; inset:0;
+  background:#000;
+  align-items:center;
+  justify-content:center;
+  flex-direction:column;
+  gap:16px;
+  z-index:50;
+}
+#castOverlay.visible{
+  display:flex;
+}
+#castOverlay svg{
+  width:64px; height:64px;
+  fill:#0f9d58;
+}
+#castOverlay p{
+  margin:0; font-size:16px; color:#ccc;
+  text-align:center;
+}
+
+/* ── TOAST ── */
+#toast{
+  position:fixed;
+  bottom:24px; left:50%;
+  transform:translateX(-50%) translateY(30px);
+  background:rgba(30,30,30,.95);
+  color:#fff;
+  padding:10px 20px;
+  border-radius:20px;
+  font-size:13px;
+  opacity:0;
+  transition:opacity .3s, transform .3s;
+  pointer-events:none;
+  z-index:9999;
+  white-space:nowrap;
+}
+#toast.show{
+  opacity:1;
+  transform:translateX(-50%) translateY(0);
+}
+</style>
+</head>
+<body>
+
+<div id="container">
+
+  <div id="fixedBar">
+    <div id="fixedBarTop">
+      <button class="ctrl-btn" id="fbFullscreen" title="Pantalla completa (F)">⛶</button>
+      <button class="ctrl-btn" id="fbSidebar"    title="Canales">☰</button>
+      <span id="fixedBarInfo">Ninguno</span>
+      <button class="nav-btn" id="fbPrevCh">▲</button>
+      <button class="nav-btn" id="fbNextCh">▼</button>
+      <button class="nav-btn" id="fbPrevSrc">◀</button>
+      <button class="nav-btn" id="fbNextSrc">▶</button>
+      <!-- Botón Cast (se muestra solo si Cast disponible) -->
+      <button class="ctrl-btn" id="fbCast" title="Enviar a la tele (Chromecast)" style="display:none">
+        <!-- Ícono Cast SVG -->
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+          <path d="M1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm0-4v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11zm20-7H3C1.9 3 1 3.9 1 5v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/>
+        </svg>
+      </button>
+      <!-- Botón AirPlay (solo Safari/iOS lo muestra automáticamente via API) -->
+      <button class="ctrl-btn" id="fbAirPlay" title="AirPlay" style="display:none">
+        <!-- Ícono AirPlay SVG -->
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+          <path d="M6 22h12l-6-6-6 6zM21 3H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h4v-2H3V5h18v12h-4v2h4c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/>
+        </svg>
+      </button>
+    </div>
+    <div id="fixedBarSources"></div>
+  </div>
+
+  <div id="main">
+    <div id="sidebar">
+      <div id="sidebarHeader">📺 Canales</div>
+      <div id="channelList"></div>
+    </div>
+
+    <div id="playerArea">
+      <video id="video" controls autoplay playsinline webkit-playsinline x-webkit-airplay="allow"></video>
+      <iframe id="iframePlayer" allow="autoplay; fullscreen" allowfullscreen></iframe>
+      <!-- Overlay mientras castea -->
+      <div id="castOverlay">
+        <svg viewBox="0 0 24 24"><path d="M1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm0-4v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11zm20-7H3C1.9 3 1 3.9 1 5v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg>
+        <p id="castOverlayText">Transmitiendo en tu TV…</p>
+      </div>
+      <div id="spinner"><div class="spin"></div></div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const M3U = `
+#EXTM3U
+#EXTINF:-1 tvg-id="TELEFE",Telefe
+iframe:https://la18hd.com/vivo/canales.php?stream=telefe
+#EXTINF:-1 tvg-id="TELEFE",Canal 5
+https://cdn.pontiscloud.com/output/COR/TSFH/playlist.m3u8
+
+#EXTINF:-1 tvg-id="fox1",Fox Sports 1
+iframe:https://junkieembeds.pages.dev/embed/fox-sports-1
+#EXTINF:-1 tvg-id="telemundo",Telemundo USA
+iframe:https://junkieembeds.pages.dev/embed/telemundo-usa
+#EXTINF:-1 tvg-id="dsports",D-Sports
+iframe:https://tvtvhd.com/canales.php?stream=dsports
+#EXTINF:-1 tvg-id="dsports",D-Sports 
+iframe:https://streamtpday1.xyz/global2.php?stream=dsports
+#EXTINF:-1 tvg-id="dsports",D-Sports2 (https://tvnow.club/tv-channels)
+iframe:https://tvnow.club/embed/espn-1-mx/
+#EXTINF:-1 tvg-id="dsports",D-Sports3 (https://streamtpday1.xyz/eventos.html)
+iframe:https://sudamericaplay2.com/canal_8112/cza_dsports.html
+#EXTINF:-1 tvg-id="telemundo",Telemundo USA 2
+iframe:https://streamtpday1.xyz/global2.php?stream=telemundousa
+#EXTINF:-1 tvg-id="telemundo",Telemundo USA 3
+iframe:https://dlhd.pk/stream/stream-131.php
+#EXTINF:-1 tvg-id="telemundo",Telemundo USA 3(https://ppv.to/live/247-south-park)
+iframe:https://embedindia.st/embed/247-south-park
+#EXTINF:-1 tvg-id="espndeports",EspnDeportes (https://timstreams.net/watch/espn-deportes)
+iframe:https://junkieembeds.pages.dev/embed/espndeportes-usa
+
+`;
+
+let channels={}, channelList=[], selectedCh=0, selectedSrc=0;
+let hlsInstance=null, dashInstance=null;
+let sidebarVisible=true;
+let castSession=null;
+let isCasting=false;
+
+const params = new URLSearchParams(window.location.search);
+const tvgid  = params.get('tvgid');
+
+// ── Parse M3U ──
+(function(){
+  let current=null;
+  for(const raw of M3U.split('\n')){
+    const line=raw.trim();
+    if(line.startsWith('#EXTINF')){
+      const m=line.match(/tvg-id="([^"]+)"/);
+      const name=line.split(',').pop().trim();
+      current={id:m?m[1]:name, name};
+    } else if(line && !line.startsWith('#') && current){
+      if(!channels[current.id]){
+        channels[current.id]={id:current.id, name:current.name, sources:[]};
+        channelList.push(channels[current.id]);
+      }
+      channels[current.id].sources.push(line);
+    }
+  }
+})();
+
+// ── DOM ──
+const video          = document.getElementById('video');
+const iframe         = document.getElementById('iframePlayer');
+const spinner        = document.getElementById('spinner');
+const fixedInfo      = document.getElementById('fixedBarInfo');
+const fixedSources   = document.getElementById('fixedBarSources');
+const channelListEl  = document.getElementById('channelList');
+const sidebar        = document.getElementById('sidebar');
+const castOverlay    = document.getElementById('castOverlay');
+const castOverlayTxt = document.getElementById('castOverlayText');
+const castBtn        = document.getElementById('fbCast');
+const airPlayBtn     = document.getElementById('fbAirPlay');
+const toastEl        = document.getElementById('toast');
+
+// ── Toast helper ──
+let toastTimer;
+function showToast(msg, dur=3000){
+  toastEl.textContent=msg;
+  toastEl.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>toastEl.classList.remove('show'), dur);
+}
+
+// ════════════════════════════════════════
+//  AIRPLAY (Safari / iOS)
+// ════════════════════════════════════════
+if(typeof WebKitPlaybackTargetAvailabilityEvent !== 'undefined'){
+  video.addEventListener('webkitplaybacktargetavailabilitychanged', e=>{
+    airPlayBtn.style.display = (e.availability==='available') ? 'flex' : 'none';
+  });
+  airPlayBtn.style.display='flex'; // mostramos por si acaso en Safari
+  airPlayBtn.addEventListener('click', e=>{
+    e.stopPropagation();
+    video.webkitShowPlaybackTargetPicker();
+  });
+} else {
+  // En iOS Safari el botón AirPlay ya aparece nativo dentro del <video controls>
+  // igual lo ofrecemos por si la API está disponible
+  if(navigator.userAgent.match(/iPhone|iPad|iPod/i)){
+    airPlayBtn.style.display='flex';
+    airPlayBtn.addEventListener('click', e=>{
+      e.stopPropagation();
+      try{ video.webkitShowPlaybackTargetPicker(); }
+      catch{ showToast('Usa el botón AirPlay dentro del reproductor'); }
+    });
+  }
+}
+
+// ════════════════════════════════════════
+//  GOOGLE CAST (Chromecast)
+// ════════════════════════════════════════
+const CAST_APP_ID = chrome && chrome.cast
+  ? chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID
+  : 'CC1AD845'; // Default Media Receiver
+
+window['__onGCastApiAvailable'] = function(isAvailable){
+  if(!isAvailable) return;
+
+  cast.framework.CastContext.getInstance().setOptions({
+    receiverApplicationId: CAST_APP_ID,
+    autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
+  });
+
+  const ctx = cast.framework.CastContext.getInstance();
+
+  ctx.addEventListener(
+    cast.framework.CastContextEventType.SESSION_STATE_CHANGED,
+    e => {
+      const s = e.sessionState;
+      if(s === cast.framework.SessionState.SESSION_STARTED ||
+         s === cast.framework.SessionState.SESSION_RESUMED){
+        castSession = cast.framework.CastContext.getInstance().getCurrentSession();
+        isCasting = true;
+        castBtn.classList.add('casting');
+        castBtn.title='Detener Cast';
+        castCurrentSource();
+      } else if(s === cast.framework.SessionState.SESSION_ENDED){
+        castSession=null;
+        isCasting=false;
+        castBtn.classList.remove('casting');
+        castBtn.title='Enviar a la tele (Chromecast)';
+        castOverlay.classList.remove('visible');
+        showToast('Cast detenido');
+      }
+    }
+  );
+
+  castBtn.style.display='flex';
+  castBtn.addEventListener('click', e=>{
+    e.stopPropagation();
+    if(isCasting){
+      cast.framework.CastContext.getInstance().endCurrentSession(true);
+    } else {
+      cast.framework.CastContext.getInstance().requestSession();
+    }
+  });
+};
+
+function castCurrentSource(){
+  if(!castSession) return;
+  const ch  = channelList[selectedCh];
+  const src = ch.sources[selectedSrc];
+
+  if(src.startsWith('iframe:')){
+    showToast('⚠️ Esta fuente es iframe y no se puede enviar por Cast. Prueba otra fuente.');
+    return;
+  }
+
+  const mediaInfo = new chrome.cast.media.MediaInfo(src,
+    src.endsWith('.mpd') ? 'application/dash+xml' : 'application/x-mpegurl');
+  mediaInfo.metadata = new chrome.cast.media.GenericMediaMetadata();
+  mediaInfo.metadata.title = ch.name;
+
+  const req = new chrome.cast.media.LoadRequest(mediaInfo);
+  castSession.loadMedia(req).then(()=>{
+    castOverlay.classList.add('visible');
+    castOverlayTxt.textContent = `📺 Transmitiendo: ${ch.name}`;
+    video.pause();
+    showToast(`Enviando "${ch.name}" a la TV…`);
+  }).catch(err=>{
+    console.error('Cast load error:', err);
+    showToast('Error al enviar a la TV. Intenta otra fuente.');
+  });
+}
+
+// ════════════════════════════════════════
+//  PLAYER LOGIC
+// ════════════════════════════════════════
+function renderChannels(){
+  channelListEl.innerHTML='';
+  channelList.forEach((ch,i)=>{
+    const div=document.createElement('div');
+    div.className='channel'+(i===selectedCh?' active':'');
+    div.innerHTML=`<span class="ch-num">${i+1}</span>${ch.name}`;
+    div.tabIndex=0;
+    div.addEventListener('click',()=>{ selectedCh=i; playChannel(); });
+    div.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ selectedCh=i; playChannel(); } });
+    channelListEl.appendChild(div);
+  });
+}
+
+function renderSources(){
+  fixedSources.innerHTML='';
+  channelList[selectedCh].sources.forEach((_,i)=>{
+    const btn=document.createElement('button');
+    btn.className='src-pill'+(i===selectedSrc?' active':'');
+    btn.textContent='Fuente '+(i+1);
+    btn.addEventListener('click',e=>{ e.stopPropagation(); selectedSrc=i; playSource(); });
+    fixedSources.appendChild(btn);
+  });
+}
+
+function playChannel(){ selectedSrc=0; renderChannels(); renderSources(); playSource(); }
+
+function playSource(){
+  renderSources();
+  const ch  = channelList[selectedCh];
+  const src = ch.sources[selectedSrc];
+
+  fixedInfo.textContent=`📺 ${ch.name}  ·  Fuente ${selectedSrc+1}/${ch.sources.length}`;
+
+  // Si está casteando, actualizar el cast también
+  if(isCasting) castCurrentSource();
+
+  showSpinner();
+  if(hlsInstance)  { hlsInstance.destroy();  hlsInstance=null; }
+  if(dashInstance) { dashInstance.reset();    dashInstance=null; }
+
+  if(src.startsWith('iframe:')){
+    video.pause();
+    video.style.display='none';
+    iframe.style.display='block';
+    iframe.src=src.replace('iframe:','');
+    hideSpinner();
+    return;
+  }
+
+  iframe.style.display='none';
+  iframe.src='';
+  video.style.display='block';
+  castOverlay.classList.remove('visible'); // si era iframe antes
+
+  if(src.endsWith('.mpd')){
+    dashInstance=dashjs.MediaPlayer().create();
+    dashInstance.initialize(video,src,true);
+    hideSpinner(); return;
+  }
+
+  if(Hls.isSupported()){
+    hlsInstance=new Hls();
+    hlsInstance.loadSource(src);
+    hlsInstance.attachMedia(video);
+    hlsInstance.on(Hls.Events.MANIFEST_PARSED,()=>{ video.play().catch(()=>{}); hideSpinner(); });
+    hlsInstance.on(Hls.Events.ERROR,()=>hideSpinner());
+  } else {
+    video.src=src; video.play().catch(()=>{}); hideSpinner();
+  }
+}
+
+function showSpinner(){ spinner.classList.add('visible'); }
+function hideSpinner(){ spinner.classList.remove('visible'); }
+
+function toggleFullscreen(){
+  if(document.fullscreenElement||document.webkitFullscreenElement||document.mozFullScreenElement){
+    (document.exitFullscreen||document.webkitExitFullscreen||document.mozCancelFullScreen).call(document);
+  } else {
+    const el=document.getElementById('container');
+    const req=el.requestFullscreen||el.webkitRequestFullscreen||el.mozRequestFullScreen||el.msRequestFullscreen;
+    if(req) req.call(el);
+  }
+}
+
+function toggleSidebar(){
+  sidebarVisible=!sidebarVisible;
+  sidebar.style.display=sidebarVisible?'':'none';
+}
+
+document.getElementById('fbFullscreen').addEventListener('click',e=>{ e.stopPropagation(); toggleFullscreen(); });
+document.getElementById('fbSidebar').addEventListener('click',   e=>{ e.stopPropagation(); toggleSidebar(); });
+document.getElementById('fbPrevCh').addEventListener('click',    e=>{ e.stopPropagation(); if(selectedCh>0){ selectedCh--; playChannel(); } });
+document.getElementById('fbNextCh').addEventListener('click',    e=>{ e.stopPropagation(); if(selectedCh<channelList.length-1){ selectedCh++; playChannel(); } });
+document.getElementById('fbPrevSrc').addEventListener('click',   e=>{ e.stopPropagation(); if(selectedSrc>0){ selectedSrc--; playSource(); } });
+document.getElementById('fbNextSrc').addEventListener('click',   e=>{ e.stopPropagation(); if(selectedSrc<channelList[selectedCh].sources.length-1){ selectedSrc++; playSource(); } });
+
+document.addEventListener('keydown',e=>{
+  const ch=channelList[selectedCh];
+  switch(e.key){
+    case 'ArrowUp':    if(selectedCh>0){ selectedCh--; playChannel(); } break;
+    case 'ArrowDown':  if(selectedCh<channelList.length-1){ selectedCh++; playChannel(); } break;
+    case 'ArrowLeft':  if(selectedSrc>0){ selectedSrc--; playSource(); } break;
+    case 'ArrowRight': if(selectedSrc<ch.sources.length-1){ selectedSrc++; playSource(); } break;
+    case 'Enter':      playChannel(); break;
+    case 'f': case 'F': toggleFullscreen(); break;
+    case 'c': case 'C':
+      if(castBtn.style.display!=='none') castBtn.click();
+      break;
+    case 'Escape': case 'GoBack':
+      if(document.fullscreenElement) document.exitFullscreen();
+      else toggleSidebar();
+      break;
+  }
+});
+
+(function(){
+  if(tvgid){
+    const idx=channelList.findIndex(c=>c.id===tvgid);
+    if(idx>=0) selectedCh=idx;
+    sidebar.style.display='none';
+    sidebarVisible=false;
+  }
+  renderChannels();
+  if(channelList.length) playChannel();
+})();
+</script>
+</body>
+</html>
