@@ -313,6 +313,7 @@ let isCasting=false;
 
 const params = new URLSearchParams(window.location.search);
 const tvgid  = params.get('tvgid');
+const srcParam = parseInt(params.get('src') || '1', 10);
 
 // ── Parse M3U ──
 (function(){
@@ -575,16 +576,43 @@ document.addEventListener('keydown',e=>{
       break;
   }
 });
-
 (function(){
-  if(tvgid){
-    const idx=channelList.findIndex(c=>c.id===tvgid);
-    if(idx>=0) selectedCh=idx;
-    sidebar.style.display='none';
-    sidebarVisible=false;
-  }
+
   renderChannels();
-  if(channelList.length) playChannel();
+
+  if(tvgid){
+
+    const idx = channelList.findIndex(
+      c => c.id.toLowerCase() === tvgid.toLowerCase()
+    );
+
+    if(idx >= 0){
+
+      selectedCh = idx;
+
+      const totalSources = channelList[idx].sources.length;
+
+      if(srcParam > 0 && srcParam <= totalSources){
+        selectedSrc = srcParam - 1;
+      }else{
+        selectedSrc = 0;
+      }
+
+      sidebar.style.display = 'none';
+      sidebarVisible = false;
+
+      renderChannels();
+      renderSources();
+      playSource();
+
+      return;
+    }
+  }
+
+  if(channelList.length){
+    playChannel();
+  }
+
 })();
 </script>
 </body>
