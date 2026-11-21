@@ -7,90 +7,212 @@
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { width: 100%; height: 100%; background: #000; overflow: hidden; }
+  html, body { width: 100%; height: 100%; background: #000; overflow: hidden; font-family: sans-serif; }
+  body.nocursor, body.nocursor * { cursor: none !important; }
 
-  /* Exactamente 2 pantallas lado a lado. Con ?layout=v, una arriba y otra abajo. */
+  :root { --ovx: 1.5vw; --ovy: 1.5vh; }   /* margen anti-overscan de TV (pon 0 en PC) */
+
   .grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    grid-template-rows: 1fr;
-    gap: 4px;
-    width: 100%;
-    height: 100%;
+    position: relative; display: grid; gap: 4px;
+    width: 100%; height: 100%;
+    padding: var(--ovy) var(--ovx);
   }
-  .grid.v { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+  /* Lado a lado */
+  .grid.h    { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; }
+  /* Arriba / abajo */
+  .grid.v    { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+  /* Principal 70% + lateral 30% */
+  .grid.side { grid-template-columns: 7fr 3fr; grid-template-rows: 1fr; }
+  /* Picture in picture: la principal llena todo, la otra va en una esquina */
+  .grid.pip  { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+  .grid.pip .box[data-pos="0"] { grid-area: 1 / 1; }
+  .grid.pip .box[data-pos="1"] {
+    position: absolute; z-index: 20;
+    width: 30%; height: 30%;
+    right: calc(var(--ovx) + 8px); bottom: calc(var(--ovy) + 8px);
+    box-shadow: 0 0 0 2px rgba(255,255,255,.25), 0 6px 20px rgba(0,0,0,.7);
+  }
 
   .box {
     position: relative; background: #000; overflow: hidden;
     min-height: 0; min-width: 0; outline: none;
     border: 3px solid transparent;
   }
-  /* Celda activa (la que tiene el "foco" del control remoto) */
   .box.active { border-color: #f5c518; }
 
   .media { width: 100%; height: 100%; border: 0; background: #000; display: block; }
   video.media { object-fit: contain; }
 
-  /* Botón SIEMPRE visible: en TV no existe hover ni touch. */
-  .max {
-    position: absolute; top: 8px; right: 8px; z-index: 10;
-    background: rgba(0,0,0,.6); color: #fff;
-    border: 1px solid rgba(255,255,255,.4); border-radius: 4px;
-    padding: 8px 14px; font-size: 14px; opacity: .55;
-    transition: opacity .2s; cursor: pointer;
-  }
-  .box.active .max { opacity: 1; }
+  /* Escudo: captura clics/teclas por encima del iframe para que el control remoto no se "pierda" dentro */
+  .shield { position: absolute; inset: 0; z-index: 5; background: transparent; }
+  .box.interact .shield { display: none; }
+  .box.interact { border-color: #2ecc71; }
 
-  /* Pantalla completa interna (funciona en WebView sin API fullscreen) */
-  .box.full { position: fixed; inset: 0; z-index: 100; border-color: transparent; }
+  /* Etiqueta y estado */
+  .tag {
+    position: absolute; top: 8px; left: 8px; z-index: 12;
+    background: rgba(0,0,0,.6); color: #fff; font-size: 13px;
+    padding: 4px 10px; border-radius: 4px; pointer-events: none;
+  }
+  .status {
+    position: absolute; inset: 0; z-index: 8; display: flex;
+    align-items: center; justify-content: center; text-align: center;
+    color: #bbb; font-size: 18px; padding: 20px; pointer-events: none;
+  }
+  .status.off { display: none; }
+
+  /* Barra de botones: solo en la pantalla activa */
+  .bar {
+    position: absolute; top: 8px; right: 8px; z-index: 12;
+    display: none; gap: 6px;
+  }
+  .box.active .bar { display: flex; }
+  .bar button {
+    background: rgba(0,0,0,.65); color: #fff;
+    border: 1px solid rgba(255,255,255,.45); border-radius: 4px;
+    padding: 8px 12px; font-size: 14px; cursor: pointer;
+  }
+  .bar button:hover { background: rgba(255,255,255,.2); }
+  .grid.pip .box[data-pos="1"] .bar button { padding: 4px 8px; font-size: 11px; }
+
+  /* Pantalla completa interna (funciona sin la API fullscreen) */
+  .box.full {
+    position: fixed !important; inset: 0 !important;
+    width: auto !important; height: auto !important;
+    z-index: 100 !important; border-color: transparent !important;
+    box-shadow: none !important;
+  }
 
   .hint {
     position: fixed; left: 50%; bottom: 10px; transform: translateX(-50%);
-    z-index: 200; background: rgba(0,0,0,.75); color: #fff;
-    font: 13px sans-serif; padding: 6px 14px; border-radius: 4px;
-    transition: opacity .4s; pointer-events: none;
+    z-index: 300; background: rgba(0,0,0,.8); color: #fff;
+    font-size: 13px; padding: 6px 14px; border-radius: 4px;
+    transition: opacity .4s; pointer-events: none; text-align: center;
+    max-width: 94vw;
   }
   .hint.off { opacity: 0; }
+
+  /* Panel de configuración */
+  .panel {
+    position: fixed; inset: 0; z-index: 500; display: none;
+    background: rgba(0,0,0,.85); align-items: center; justify-content: center;
+  }
+  .panel.on { display: flex; }
+  .panel .card {
+    width: min(720px, 92vw); background: #151515; color: #eee;
+    border: 1px solid #333; border-radius: 10px; padding: 22px;
+  }
+  .panel h2 { font-size: 20px; margin-bottom: 14px; }
+  .panel label { display: block; font-size: 14px; margin: 12px 0 4px; color: #aaa; }
+  .panel input[type=text], .panel select {
+    width: 100%; padding: 10px; font-size: 16px; color: #fff;
+    background: #222; border: 2px solid #444; border-radius: 6px;
+  }
+  .panel input:focus, .panel select:focus, .panel button:focus { border-color: #f5c518; outline: 2px solid #f5c518; }
+  .panel .row { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 14px; }
+  .panel .row input { width: 20px; height: 20px; }
+  .panel .btns { display: flex; gap: 10px; margin-top: 18px; }
+  .panel .btns button {
+    padding: 10px 18px; font-size: 16px; border-radius: 6px; border: 2px solid #444;
+    background: #2a2a2a; color: #fff; cursor: pointer;
+  }
+  .panel .small { font-size: 12px; color: #888; margin-top: 12px; line-height: 1.5; }
 </style>
 </head>
 <body>
 
-<div class="grid" id="grid"></div>
-<div class="hint" id="hint">◀ ▶ cambiar pantalla · OK maximizar / restaurar · Atrás restaurar</div>
+<div class="grid h" id="grid"></div>
+<div class="hint" id="hint"></div>
+
+<div class="panel" id="panel">
+  <div class="card">
+    <h2>Configuración</h2>
+    <label for="cfgUrl1">Pantalla 1 (URL de embed o .m3u8)</label>
+    <input type="text" id="cfgUrl1" placeholder="https://...">
+    <label for="cfgUrl2">Pantalla 2 (URL de embed o .m3u8)</label>
+    <input type="text" id="cfgUrl2" placeholder="https://...">
+    <label for="cfgLayout">Distribución</label>
+    <select id="cfgLayout">
+      <option value="h">Lado a lado</option>
+      <option value="v">Arriba / abajo</option>
+      <option value="side">Principal 70% + lateral 30%</option>
+      <option value="pip">Picture in picture</option>
+    </select>
+    <div class="row"><input type="checkbox" id="cfgSandbox"><span>Bloquear popups y redirecciones (sandbox). Algunos reproductores no cargan con esto.</span></div>
+    <div class="btns">
+      <button id="cfgSave">Guardar</button>
+      <button id="cfgCancel">Cancelar</button>
+      <button id="cfgReset">Restablecer</button>
+    </div>
+    <div class="small">Teclas: ◀ ▶ ▲ ▼ cambiar pantalla · OK maximizar · L distribución · S intercambiar · I interactuar con el reproductor · R recargar · M menú.<br>
+    En mandos con botones de color: Rojo = distribución, Verde = intercambiar, Amarillo = interactuar, Azul = menú.</div>
+  </div>
+</div>
 
 <script>
 /* ============================================================
-   CONFIGURA AQUÍ TUS 2 STREAMS (máximo 2, el resto se ignora)
-   - type "hls"    → URL .m3u8 (se reproduce con <video>)
-   - type "iframe" → URL de embed (se muestra en <iframe>)
-   - Deja url vacío ("") para dejar el cuadro en negro
+   CONFIGURACIÓN
+   Prioridad: parámetros de la URL > lo guardado en el panel > valores por defecto.
 
-   Por URL:  index.html?s1=https://...&s2=https://...&layout=v
-   (si la URL contiene ".m3u8" usa HLS, si no usa iframe)
+   URL:  index.html?s1=https://...&s2=https://...&layout=pip&sandbox=1
+   - Si la URL contiene ".m3u8" se usa HLS (<video>, con control de audio);
+     si no, se usa <iframe>.
+   - layout: h (lado a lado) · v (arriba/abajo) · side (70/30) · pip
    ============================================================ */
 const MAX_SCREENS = 2;
+const STORE_KEY = "mv_cfg_v2";
 
-const STREAMS = [
-  { type: "iframe", url: "https://la18hd.su/vivo/canales.php?stream=espnmx" },
-  { type: "iframe", url: "https://la18hd.su/vivo/canales.php?stream=tudn" }
-].slice(0, MAX_SCREENS);
+const DEFAULTS = {
+  urls: [
+    "https://la18hd.su/vivo/canales.php?stream=canal5",
+    "https://asiria.is/sportklub4.php"
+  ],
+  layout: "h",
+  sandbox: false
+};
 
-const params = new URLSearchParams(location.search);
-for (let i = 0; i < MAX_SCREENS; i++) {
-  const p = params.get("s" + (i + 1));
-  if (p) STREAMS[i] = { type: p.includes(".m3u8") ? "hls" : "iframe", url: p };
+function readSaved() {
+  try { return JSON.parse(localStorage.getItem(STORE_KEY)) || {}; } catch (e) { return {}; }
+}
+function writeSaved(obj) {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(obj)); } catch (e) {}
 }
 
+const params = new URLSearchParams(location.search);
+const saved = readSaved();
+const cfg = {
+  urls: (saved.urls || DEFAULTS.urls).slice(0, MAX_SCREENS),
+  layout: saved.layout || DEFAULTS.layout,
+  sandbox: saved.sandbox !== undefined ? !!saved.sandbox : DEFAULTS.sandbox
+};
+for (let i = 0; i < MAX_SCREENS; i++) {
+  const p = params.get("s" + (i + 1));
+  if (p !== null) cfg.urls[i] = p;
+}
+if (["h", "v", "side", "pip"].includes(params.get("layout"))) cfg.layout = params.get("layout");
+if (params.has("sandbox")) cfg.sandbox = params.get("sandbox") === "1";
+while (cfg.urls.length < MAX_SCREENS) cfg.urls.push("");
+
+const STREAMS = cfg.urls.map(u => ({
+  type: (u || "").includes(".m3u8") ? "hls" : "iframe",
+  url: (u || "").trim()
+}));
+
+/* ============================================================
+   ESTADO
+   ============================================================ */
 const grid = document.getElementById("grid");
-const vertical = params.get("layout") === "v";
-if (vertical) grid.classList.add("v");
-
-const boxes = [];          // .box de cada pantalla
-const medias = [];         // <video> o <iframe>
+const boxes = [], medias = [], statusEls = [], btnInteract = [], btnMax = [];
 const hlsInstances = [];
-let active = 0;            // pantalla con el foco
-let maximized = -1;        // índice maximizado, o -1
+const st = STREAMS.map(() => ({ unloaded: false, retries: 0, timer: null }));
+let order = [0, 1];       // order[posición] = índice de pantalla (posición 0 = principal)
+let active = 0;           // pantalla con el foco
+let maximized = -1;       // pantalla maximizada o -1
+let layout = cfg.layout;
 
+/* ============================================================
+   CONSTRUCCIÓN DE CADA PANTALLA
+   ============================================================ */
 STREAMS.forEach((s, i) => {
   const box = document.createElement("div");
   box.className = "box";
@@ -101,122 +223,436 @@ STREAMS.forEach((s, i) => {
     if (s.type === "hls") {
       media = document.createElement("video");
       media.className = "media";
-      media.muted = true;           // el audio lo decide setActive()
+      media.muted = true;
       media.autoplay = true;
       media.playsInline = true;
       media.setAttribute("playsinline", "");
       box.appendChild(media);
-
-      if (media.canPlayType("application/vnd.apple.mpegurl")) {
-        media.src = s.url;
-      } else if (window.Hls && Hls.isSupported()) {
-        const hls = new Hls({ lowLatencyMode: true });
-        hls.loadSource(s.url);
-        hls.attachMedia(media);
-        hls.on(Hls.Events.MANIFEST_PARSED, () => media.play().catch(() => {}));
-        hls.on(Hls.Events.ERROR, (_, d) => {
-          if (d.fatal) {
-            if (d.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
-            else if (d.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
-          }
-        });
-        hlsInstances[i] = hls;
-      }
     } else {
       media = document.createElement("iframe");
       media.className = "media";
       media.allow = "autoplay; fullscreen; encrypted-media; picture-in-picture";
       media.allowFullscreen = true;
+      media.referrerPolicy = "no-referrer-when-downgrade";
+      if (cfg.sandbox) {
+        media.setAttribute("sandbox",
+          "allow-scripts allow-same-origin allow-presentation allow-forms");
+      }
+      media.addEventListener("load", () => {
+        if (media.getAttribute("src") && media.getAttribute("src") !== "about:blank") setStatus(i, "");
+      });
       box.appendChild(media);
-      // Carga escalonada: la 2.ª arranca 1.5 s después para no pedir
-      // los dos decoders exactamente al mismo tiempo.
-      setTimeout(() => { if (maximized < 0 || maximized === i) media.src = s.url; }, i * 1500);
+
+      // Escudo transparente para no perder las teclas del control remoto
+      const shield = document.createElement("div");
+      shield.className = "shield";
+      box.appendChild(shield);
     }
   }
   medias[i] = media;
 
-  const btn = document.createElement("button");
-  btn.className = "max";
-  btn.textContent = "Maximizar";
-  btn.onclick = (e) => { e.stopPropagation(); setActive(i); toggleMax(i); };
-  box.appendChild(btn);
+  // Estado (cargando / sin señal)
+  const status = document.createElement("div");
+  status.className = "status";
+  statusEls[i] = status;
+  box.appendChild(status);
 
-  // Click/tap sobre la pantalla = darle el foco (y el audio, si es HLS).
+  // Etiqueta
+  const tag = document.createElement("div");
+  tag.className = "tag";
+  tag.id = "tag" + i;
+  box.appendChild(tag);
+
+  // Botones (no entran en el orden de tabulación para no duplicar Enter/Espacio)
+  const bar = document.createElement("div");
+  bar.className = "bar";
+
+  const mk = (text, fn) => {
+    const b = document.createElement("button");
+    b.textContent = text;
+    b.tabIndex = -1;
+    b.addEventListener("click", (e) => { e.stopPropagation(); setActive(i); fn(); box.focus({ preventScroll: true }); });
+    bar.appendChild(b);
+    return b;
+  };
+  if (s.url && s.type === "iframe") btnInteract[i] = mk("Interactuar", () => toggleInteract(i));
+  if (s.url) mk("Recargar", () => reloadScreen(i));
+  btnMax[i] = mk("Maximizar", () => toggleMax(i));
+  box.appendChild(bar);
+
   box.addEventListener("click", () => setActive(i));
 
   boxes[i] = box;
   grid.appendChild(box);
 });
 
-/* Foco + audio: solo la pantalla activa suena (solo aplica a <video> HLS;
-   el audio de un iframe de otro dominio no se puede controlar desde aquí). */
-function setActive(i) {
-  active = i;
-  boxes.forEach((b, k) => b.classList.toggle("active", k === i));
-  medias.forEach((m, k) => { if (m && m.tagName === "VIDEO") m.muted = (k !== i); });
-  if (maximized < 0) boxes[i].focus({ preventScroll: true });
+/* ============================================================
+   CARGA / DESCARGA
+   ============================================================ */
+function setStatus(i, text) {
+  statusEls[i].textContent = text || "";
+  statusEls[i].classList.toggle("off", !text);
 }
 
-/* Maximizar: la otra pantalla se DESCARGA (iframe -> about:blank, HLS -> stop)
-   para liberar su decoder; al restaurar se vuelve a cargar. */
-function toggleMax(i) {
-  const other = 1 - i;
-  if (maximized === i) {
-    maximized = -1;
-    boxes[i].classList.remove("full");
-    boxes[i].querySelector(".max").textContent = "Maximizar";
-    loadScreen(other);
+function loadIframe(i) {
+  const m = medias[i];
+  if (!m) return;
+  setStatus(i, "Cargando…");
+  m.src = STREAMS[i].url;
+}
+
+/* ---------- HLS ---------- */
+function teardownHls(i) {
+  clearTimeout(st[i].timer);
+  if (hlsInstances[i]) { try { hlsInstances[i].destroy(); } catch (e) {} hlsInstances[i] = null; }
+  const m = medias[i];
+  if (m) { m.pause(); m.removeAttribute("src"); try { m.load(); } catch (e) {} }
+}
+
+function scheduleRetry(i) {
+  if (st[i].unloaded) return;
+  clearTimeout(st[i].timer);
+  const delay = Math.min(30000, 2000 * Math.pow(2, st[i].retries++));
+  setStatus(i, "Sin señal, reintentando en " + Math.round(delay / 1000) + " s…");
+  st[i].timer = setTimeout(() => startHls(i), delay);
+}
+
+function startHls(i) {
+  const s = STREAMS[i], m = medias[i];
+  if (!m || st[i].unloaded) return;
+  teardownHls(i);
+  setStatus(i, "Cargando…");
+  m.muted = (i !== active);
+
+  if (m.canPlayType("application/vnd.apple.mpegurl")) {
+    m.src = s.url;
+    m.play().catch(() => {});
+  } else if (window.Hls && Hls.isSupported()) {
+    const hls = new Hls({ lowLatencyMode: true, capLevelToPlayerSize: true });
+    hls.loadSource(s.url);
+    hls.attachMedia(m);
+    hls.on(Hls.Events.MANIFEST_PARSED, () => m.play().catch(() => {}));
+    hls.on(Hls.Events.ERROR, (_, d) => {
+      if (!d.fatal) return;
+      // Cualquier error fatal: destruir y recrear con espera creciente
+      scheduleRetry(i);
+    });
+    hlsInstances[i] = hls;
+    applyQuality();
   } else {
-    maximized = i;
-    boxes[i].classList.add("full");
-    boxes[i].querySelector(".max").textContent = "Cerrar";
-    unloadScreen(other);
+    setStatus(i, "Este navegador no soporta HLS");
   }
+}
+
+function wireVideoEvents(i) {
+  const m = medias[i];
+  if (!m || m.tagName !== "VIDEO") return;
+  m.addEventListener("playing", () => { st[i].retries = 0; setStatus(i, ""); });
+  m.addEventListener("error", () => scheduleRetry(i));          // ruta nativa
+  m.addEventListener("stalled", () => {                          // se quedó trabado
+    clearTimeout(st[i]._stall);
+    st[i]._stall = setTimeout(() => { if (m.readyState < 3 && !st[i].unloaded) scheduleRetry(i); }, 10000);
+  });
 }
 
 function unloadScreen(i) {
   const m = medias[i];
   if (!m) return;
+  st[i].unloaded = true;
   if (m.tagName === "IFRAME") m.src = "about:blank";
-  else if (hlsInstances[i]) hlsInstances[i].stopLoad();
-  if (m.tagName === "VIDEO") m.pause();
+  else teardownHls(i);
 }
 
 function loadScreen(i) {
-  const m = medias[i], s = STREAMS[i];
-  if (!m || !s || !s.url) return;
-  if (m.tagName === "IFRAME") m.src = s.url;
-  else {
-    if (hlsInstances[i]) hlsInstances[i].startLoad();
-    m.play().catch(() => {});
+  const m = medias[i];
+  if (!m || !STREAMS[i].url) return;
+  st[i].unloaded = false;
+  st[i].retries = 0;
+  if (m.tagName === "IFRAME") loadIframe(i);
+  else startHls(i);          // arranca de cero = vuelve al borde en vivo
+}
+
+function reloadScreen(i) {
+  const m = medias[i];
+  if (!m) return;
+  if (m.tagName === "IFRAME") {
+    m.src = "about:blank";
+    setTimeout(() => loadScreen(i), 250);
+  } else {
+    st[i].unloaded = false;
+    st[i].retries = 0;
+    startHls(i);
   }
 }
 
-/* Control remoto / teclado.
-   OJO: si el foco está DENTRO de un iframe, las teclas las recibe el iframe
-   y no esta página; en ese caso usa el botón "Maximizar" con el cursor. */
-function showHint() {
-  const h = document.getElementById("hint");
-  h.classList.remove("off");
-  clearTimeout(showHint._t);
-  showHint._t = setTimeout(() => h.classList.add("off"), 5000);
+/* ============================================================
+   FOCO, AUDIO Y CALIDAD
+   ============================================================ */
+function applyAudio() {
+  medias.forEach((m, k) => {
+    if (!m || m.tagName !== "VIDEO") return;
+    m.muted = (k !== active);
+    if (!m.muted && m.paused && !st[k].unloaded) {
+      m.play().catch(() => { m.muted = true; m.play().catch(() => {}); });
+    }
+  });
+}
+
+// La pantalla inactiva usa una calidad menor para ahorrar decodificador
+function applyQuality() {
+  hlsInstances.forEach((h, k) => {
+    if (h) h.autoLevelCapping = (k === active || maximized === k) ? -1 : 1;
+  });
+}
+
+function updateTags() {
+  boxes.forEach((b, k) => {
+    const t = document.getElementById("tag" + k);
+    const isVideo = medias[k] && medias[k].tagName === "VIDEO";
+    const audio = isVideo ? (k === active ? " 🔊" : " 🔇") : "";
+    t.textContent = "Pantalla " + (k + 1) + audio;
+  });
+}
+
+function setActive(i) {
+  if (active !== i) {
+    // Al cambiar de pantalla se sale del modo interactuar
+    boxes.forEach((b, k) => { if (k !== i) setInteract(k, false); });
+  }
+  active = i;
+  boxes.forEach((b, k) => b.classList.toggle("active", k === i));
+  applyAudio();
+  applyQuality();
+  updateTags();
+  if (maximized < 0) boxes[i].focus({ preventScroll: true });
+}
+
+function setInteract(i, on) {
+  if (!medias[i] || medias[i].tagName !== "IFRAME") return;
+  boxes[i].classList.toggle("interact", on);
+  if (btnInteract[i]) btnInteract[i].textContent = on ? "Salir de interactuar" : "Interactuar";
+}
+function toggleInteract(i) {
+  setInteract(i, !boxes[i].classList.contains("interact"));
+}
+
+/* ============================================================
+   MAXIMIZAR
+   ============================================================ */
+function toggleMax(i) {
+  const other = 1 - i;
+  if (maximized === i) {
+    maximized = -1;
+    boxes[i].classList.remove("full");
+    btnMax[i].textContent = "Maximizar";
+    loadScreen(other);
+  } else {
+    // Si había otra maximizada, restaurarla primero
+    if (maximized >= 0) {
+      boxes[maximized].classList.remove("full");
+      btnMax[maximized].textContent = "Maximizar";
+    }
+    maximized = i;
+    boxes[i].classList.add("full");
+    btnMax[i].textContent = "Cerrar";
+    unloadScreen(other);     // libera el decodificador de la otra
+  }
+  applyQuality();
+}
+
+/* ============================================================
+   DISTRIBUCIÓN
+   ============================================================ */
+function applyLayout() {
+  grid.className = "grid " + layout;
+  boxes.forEach((b, i) => {
+    const pos = order.indexOf(i);
+    b.dataset.pos = pos;
+    b.style.order = pos;
+  });
+}
+function cycleLayout() {
+  const L = ["h", "v", "side", "pip"];
+  layout = L[(L.indexOf(layout) + 1) % L.length];
+  applyLayout();
+  persist();
+  flash("Distribución: " + ({ h: "lado a lado", v: "arriba / abajo", side: "principal + lateral", pip: "picture in picture" })[layout]);
+}
+function swapScreens() {
+  order.reverse();
+  applyLayout();
+  setActive(order[0]);
+  flash("Pantallas intercambiadas");
+}
+function persist() {
+  writeSaved({ urls: STREAMS.map(s => s.url), layout, sandbox: cfg.sandbox });
+}
+
+/* ============================================================
+   AVISOS
+   ============================================================ */
+const hintEl = document.getElementById("hint");
+function flash(text, ms) {
+  hintEl.textContent = text;
+  hintEl.classList.remove("off");
+  clearTimeout(flash._t);
+  flash._t = setTimeout(() => hintEl.classList.add("off"), ms || 3500);
+}
+const HINT_TEXT = "◀ ▶ cambiar · OK maximizar · L distribución · S intercambiar · I interactuar · R recargar · M menú";
+
+/* ============================================================
+   PANEL DE CONFIGURACIÓN
+   ============================================================ */
+const panel = document.getElementById("panel");
+const cfgUrl1 = document.getElementById("cfgUrl1");
+const cfgUrl2 = document.getElementById("cfgUrl2");
+const cfgLayout = document.getElementById("cfgLayout");
+const cfgSandbox = document.getElementById("cfgSandbox");
+const panelFocusables = [cfgUrl1, cfgUrl2, cfgLayout, cfgSandbox,
+  document.getElementById("cfgSave"), document.getElementById("cfgCancel"), document.getElementById("cfgReset")];
+
+function openPanel() {
+  cfgUrl1.value = STREAMS[0].url;
+  cfgUrl2.value = STREAMS[1].url;
+  cfgLayout.value = layout;
+  cfgSandbox.checked = cfg.sandbox;
+  panel.classList.add("on");
+  cfgUrl1.focus();
+}
+function closePanel() {
+  panel.classList.remove("on");
+  boxes[active].focus({ preventScroll: true });
+}
+document.getElementById("cfgSave").onclick = () => {
+  writeSaved({
+    urls: [cfgUrl1.value.trim(), cfgUrl2.value.trim()],
+    layout: cfgLayout.value,
+    sandbox: cfgSandbox.checked
+  });
+  location.replace(location.pathname);   // recarga limpia con lo guardado
+};
+document.getElementById("cfgCancel").onclick = closePanel;
+document.getElementById("cfgReset").onclick = () => {
+  try { localStorage.removeItem(STORE_KEY); } catch (e) {}
+  location.replace(location.pathname);
+};
+
+/* ============================================================
+   CONTROL REMOTO / TECLADO
+   Incluye códigos de Android TV, Tizen (Samsung) y webOS (LG).
+   OJO: si el foco está dentro de un iframe (modo "Interactuar"), las teclas
+   las recibe el iframe; usa los botones con el cursor para salir.
+   ============================================================ */
+const KEYMAP_BY_KEY = {
+  ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down",
+  Enter: "ok", " ": "ok",
+  Escape: "back", Backspace: "back", BrowserBack: "back", GoBack: "back",
+  ContextMenu: "menu",
+  l: "layout", s: "swap", i: "interact", m: "menu", r: "reload"
+};
+const KEYMAP_BY_CODE = {
+  37: "left", 38: "up", 39: "right", 40: "down", 13: "ok", 32: "ok",
+  8: "back", 27: "back", 4: "back", 10009: "back" /* Tizen */, 461: "back" /* webOS */,
+  403: "layout", 404: "swap", 405: "interact", 406: "menu",   // rojo, verde, amarillo, azul
+  93: "menu", 457: "menu",
+  76: "layout", 83: "swap", 73: "interact", 77: "menu", 82: "reload"
+};
+function actionOf(e) {
+  const k = (e.key && e.key.length === 1) ? e.key.toLowerCase() : e.key;
+  return KEYMAP_BY_KEY[k] || KEYMAP_BY_CODE[e.keyCode] || null;
 }
 
 document.addEventListener("keydown", (e) => {
-  showHint();
-  const prev = vertical ? "ArrowUp" : "ArrowLeft";
-  const next = vertical ? "ArrowDown" : "ArrowRight";
-  if (maximized < 0) {
-    if (e.key === prev) { setActive(0); e.preventDefault(); }
-    else if (e.key === next) { setActive(1); e.preventDefault(); }
+  const a = actionOf(e);
+  if (!a) return;
+
+  /* --- Panel abierto: navegación propia --- */
+  if (panel.classList.contains("on")) {
+    if (a === "back") { closePanel(); e.preventDefault(); return; }
+    const idx = panelFocusables.indexOf(document.activeElement);
+    if (e.key === "ArrowDown" || e.keyCode === 40) {
+      panelFocusables[Math.min(panelFocusables.length - 1, idx + 1)].focus(); e.preventDefault();
+    } else if (e.key === "ArrowUp" || e.keyCode === 38) {
+      panelFocusables[Math.max(0, idx - 1)].focus(); e.preventDefault();
+    } else if ((e.key === "Enter" || e.keyCode === 13) && document.activeElement.tagName === "INPUT"
+               && document.activeElement.type === "text") {
+      panelFocusables[Math.min(panelFocusables.length - 1, idx + 1)].focus(); e.preventDefault();
+    }
+    return;
   }
-  if (e.key === "Enter" || e.key === " ") { toggleMax(active); e.preventDefault(); }
-  else if ((e.key === "Escape" || e.key === "Backspace" || e.key === "BrowserBack" || e.keyCode === 4)
-           && maximized >= 0) { toggleMax(maximized); e.preventDefault(); }
+
+  /* --- Escribiendo en algún campo: no interferir --- */
+  const tag = (document.activeElement && document.activeElement.tagName) || "";
+  if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+
+  flash(HINT_TEXT, 5000);
+
+  if (a === "left" || a === "right" || a === "up" || a === "down") {
+    if (maximized < 0) {
+      // Se navega por posición: ◀/▲ = posición 0, ▶/▼ = posición 1
+      const first = (layout === "v") ? "up" : (layout === "h" ? "left" : null);
+      let pos;
+      if (layout === "h") pos = (a === "left") ? 0 : (a === "right" ? 1 : -1);
+      else if (layout === "v") pos = (a === "up") ? 0 : (a === "down" ? 1 : -1);
+      else pos = (a === "left" || a === "up") ? 0 : 1;
+      if (pos >= 0) { setActive(order[pos]); e.preventDefault(); }
+    }
+  } else if (a === "ok") {
+    toggleMax(active); e.preventDefault();
+  } else if (a === "back") {
+    if (boxes[active].classList.contains("interact")) { setInteract(active, false); e.preventDefault(); }
+    else if (maximized >= 0) { toggleMax(maximized); e.preventDefault(); }
+  } else if (a === "layout") {
+    if (maximized < 0) { cycleLayout(); e.preventDefault(); }
+  } else if (a === "swap") {
+    if (maximized < 0) { swapScreens(); e.preventDefault(); }
+  } else if (a === "interact") {
+    toggleInteract(active); e.preventDefault();
+  } else if (a === "reload") {
+    reloadScreen(active); e.preventDefault();
+  } else if (a === "menu") {
+    openPanel(); e.preventDefault();
+  }
 });
 
+/* ============================================================
+   DETALLES DE TV: cursor, pantalla encendida
+   ============================================================ */
+let cursorTimer;
+function showCursor() {
+  document.body.classList.remove("nocursor");
+  clearTimeout(cursorTimer);
+  cursorTimer = setTimeout(() => document.body.classList.add("nocursor"), 4000);
+}
+["mousemove", "mousedown", "touchstart"].forEach(ev => document.addEventListener(ev, showCursor, { passive: true }));
+showCursor();
+
+let wakeLock = null;
+async function keepAwake() {
+  try {
+    if ("wakeLock" in navigator) {
+      wakeLock = await navigator.wakeLock.request("screen");
+      wakeLock.addEventListener("release", () => { wakeLock = null; });
+    }
+  } catch (e) { /* no soportado o denegado */ }
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") keepAwake(); });
+keepAwake();
+
+/* ============================================================
+   ARRANQUE
+   ============================================================ */
+applyLayout();
+STREAMS.forEach((s, i) => {
+  wireVideoEvents(i);
+  if (!s.url) { setStatus(i, "Sin stream · pulsa M para configurar"); return; }
+  if (s.type === "hls") startHls(i);
+  // Carga escalonada de iframes: la 2.ª arranca 1.5 s después para no pedir
+  // los dos decodificadores exactamente al mismo tiempo.
+  else setTimeout(() => { if (!st[i].unloaded) loadIframe(i); }, i * 1500);
+});
 setActive(0);
-showHint();
+flash(HINT_TEXT, 6000);
 </script>
 </body>
 </html>
